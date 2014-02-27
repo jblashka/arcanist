@@ -14,8 +14,9 @@ final class ArcanistLandWorkflow extends ArcanistBaseWorkflow {
   private $oldBranch;
   private $branch;
   private $onto;
-  private $ontoRemoteBranch;
   private $remote;
+  private $remoteonto;
+  private $fullRemoteBranch;
   private $useSquash;
   private $keepBranch;
   private $shouldUpdateWithRebase;
@@ -81,6 +82,10 @@ EOTEXT
                   "('master' in git, 'default' in hg). You can change the ".
                   "default by setting 'arc.land.onto.default' with ".
                   "`arc set-config` or for the entire project in .arcconfig.",
+      ),
+      'remoteonto' => array(
+        'param' => 'master',
+        'help' => "Land feature branch onto a remote branch other than the default.",
       ),
       'hold' => array(
         'help' => "Prepare the change to be pushed, but do not actually ".
@@ -276,11 +281,12 @@ EOTEXT
       $this->useSquash = !$this->isHistoryImmutable();
     }
 
-    $this->ontoRemoteBranch = $this->onto;
+    $this->remoteonto = $this->getArgument('remoteonto', $this->onto);
+    $this->fullRemoteBranch = $this->remoteonto;
     if ($this->isGitSvn) {
-      $this->ontoRemoteBranch = 'trunk';
+      $this->fullRemoteBranch = 'trunk';
     } else if ($this->isGit) {
-      $this->ontoRemoteBranch = $this->remote.'/'.$this->onto;
+      $this->fullRemoteBranch = $this->remote.'/'.$this->remoteonto;
     }
 
     $this->oldBranch = $this->getBranchOrBookmark();
@@ -385,7 +391,7 @@ EOTEXT
   private function findRevision() {
     $repository_api = $this->getRepositoryAPI();
 
-    $this->parseBaseCommitArgument(array($this->ontoRemoteBranch));
+    $this->parseBaseCommitArgument(array($this->fullRemoteBranch));
 
     $revision_id = $this->getArgument('revision');
     if ($revision_id) {
@@ -509,7 +515,7 @@ EOTEXT
         }
         list($out) = $repository_api->execxLocal(
           'log %s..%s',
-          $this->ontoRemoteBranch,
+          $this->fullRemoteBranch,
           $this->onto);
         if (strlen(trim($out))) {
           $local_ahead_of_remote = true;
@@ -585,7 +591,7 @@ EOTEXT
     if ($local_ahead_of_remote) {
       throw new ArcanistUsageException(
         "Local {$this->ontoType} '{$this->onto}' is ahead of remote ".
-        "{$this->ontoType} '{$this->ontoRemoteBranch}', so landing a feature ".
+        "{$this->ontoType} '{$this->fullRemoteBranch}', so landing a feature ".
         "{$this->ontoType} would push additional changes. Push or reset the ".
         "changes in '{$this->onto}' before running 'arc land'.");
     }
@@ -899,9 +905,10 @@ EOTEXT
         $cmd = "git svn dcommit";
       } else if ($this->isGit) {
         $err = phutil_passthru(
-          'git push %s %s',
+          'git push %s %s:%s',
           $this->remote,
-          $this->onto);
+          $this->onto,
+          $this->remoteonto);
         $cmd = "git push";
       } else if ($this->isHgSvn) {
         // hg-svn doesn't support 'push -r', so we do a normal push
